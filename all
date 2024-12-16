@@ -1,0 +1,689 @@
+FIND_S
+---------------------------
+import pandas as pd
+
+
+def find_s_algorithm(data, target):
+    # Initialize the most specific hypothesis
+    h = None
+    # Iterate over the dataset
+    for index, row in data.iterrows():
+        if row[target] == 'Yes':  # Consider only positive instances
+            if h is None:
+                h = row.iloc[:-1].tolist()  # Initialize h with the first positive instance
+            else:
+                for i in range(len(h)):
+                    if h[i] != row.iloc[i]:
+                        h[i] = '?'  # Generalize h if attribute values differ
+        print("Step:", index + 1, h)
+    return h
+
+
+if __name__ == "__main__":
+    # Training Examples with labels
+    training_examples = pd.DataFrame([
+        ['Sunny', 'Warm', 'Normal', 'Strong', 'Warm', 'Same', 'Yes'],
+        ['Sunny', 'Warm', 'High', 'Strong', 'Warm', 'Same', 'Yes'],
+        ['Rainy', 'Cold', 'High', 'Strong', 'Warm', 'Change', 'No'],
+        ['Sunny', 'Warm', 'High', 'Strong', 'Cool', 'Change', 'Yes']
+    ], columns=['Sky', 'AirTemp', 'Humidity', 'Wind', 'Water', 'Forecast', 'EnjoySport'])
+    target_concept = 'EnjoySport'
+    # Apply Find-S Algorithm
+    hypothesis = find_s_algorithm(training_examples, target_concept)
+    # Print the final hypothesis
+    print("Final Hypothesis:", hypothesis)
+CANDIDATE
+----------------------------
+# Define possible values for each attribute
+attribute_values = {
+    'Sky': ['Sunny', 'Cloudy', 'Rainy'],
+    'AirTemp': ['Warm', 'Cold'],
+    'Humidity': ['Normal', 'High'],
+    'Wind': ['Strong', 'Weak'],
+    'Water': ['Warm', 'Cool'],
+    'Forecast': ['Same', 'Change']
+}
+
+attributes_map = {
+    0: 'Sky',
+    1: 'AirTemp',
+    2: 'Humidity',
+    3: 'Wind',
+    4: 'Water',
+    5: 'Forecast'
+}
+
+def candidate_elimination(examples):
+    """
+    Implements the candidate elimination algorithm.
+
+    Args:
+        examples: A list of tuples (instance, label), where instance is a list of attribute values and label is the corresponding class.
+
+    Returns:
+        A list of hypotheses that are consistent with all positive examples and inconsistent with all negative examples.
+    """
+
+    # Initialize the general and specific hypotheses
+    general = [["?"] * len(examples[0][0])]
+    specific = [["0"] * len(examples[0][0])]
+
+    # Iterate over each example
+    example_no = 0
+    print(f"Initialization")
+    print(f"S = {specific}")
+    print(f"G = {general}")
+    print()
+    for instance, label in examples:
+        example_no += 1
+        if label == "Yes":
+            # If the instance is positive, remove any general hypothesis that is inconsistent with it
+            general = [h for h in general if is_consistent(h, instance, label)]
+
+            # If the specific hypothesis is inconsistent with the instance, make it more general
+            if not is_consistent(specific[0], instance, label):
+                for i in range(len(specific[0])):
+                    if specific[0][i] == "0":
+                        specific[0][i] = instance[i]
+                    elif specific[0][i] != instance[i]:
+                        specific[0][i] = "?"
+        else:
+            # If the instance is negative, remove any specific hypothesis that is consistent with it
+            specific = [h for h in specific if not is_consistent(h, instance, label)]
+
+            # If the general hypothesis is consistent with the instance, make it more specific
+            if general:
+                bool_value = is_consistent(general[0], instance, label)
+                if bool_value:
+                    new_general = []
+                    for g in general:
+                        new_general += specialize_g(g, instance, attributes_map, attribute_values)
+                    general = new_general
+
+        # Check consistency of S and G with all previous examples
+        for prev_instance, prev_label in examples[:example_no]:
+            if prev_label == "Yes":
+                general = [h for h in general if is_consistent(h, prev_instance, prev_label)]
+            else:
+                general = [h for h in general if not is_consistent(h, prev_instance, prev_label)]
+
+        print(f"Instance {example_no}: {instance}, Label: {label}")
+        print(f"S = {specific}")
+        print(f"G = {general}")
+        print()
+
+    return general, specific
+
+def is_consistent(hypothesis, instance, label):
+    """
+    Checks if a hypothesis is consistent with an instance and label.
+
+    Args:
+        hypothesis: A list of attribute values representing a hypothesis.
+        instance: A list of attribute values representing an instance.
+        label: The class label of the instance.
+
+    Returns:
+        True if the hypothesis is consistent with the instance and label, False otherwise.
+    """
+
+    # Check if the hypothesis is more general than the instance
+    for i in range(len(hypothesis)):
+        if hypothesis[i] != "?" and hypothesis[i] != instance[i]:
+            return False
+
+    # Check if the hypothesis implies the label
+    if label == "Yes":
+        return True
+    else:
+        return hypothesis != instance
+
+def specialize_g(hypothesis, instance, attrib_map, attrib_values):
+    """
+    Specializes a general hypothesis to exclude a negative instance.
+
+    Args:
+        hypothesis: A list of attribute values representing a hypothesis.
+        instance: A list of attribute values representing an instance.
+        attrib_map: A dictionary mapping attribute indices to attribute names.
+        attrib_values: A dictionary mapping attribute names to possible values.
+
+    Returns:
+        A list of specialized hypotheses.
+    """
+    specializations = []
+    for i in range(len(hypothesis)):
+        if hypothesis[i] == "?":
+            for value in attrib_values[attrib_map[i]]:
+                if value != instance[i]:
+                    new_hypothesis = hypothesis[:]
+                    new_hypothesis[i] = value
+                    specializations.append(new_hypothesis)
+    return specializations
+
+if __name__ == "__main__":
+    # Define the training examples
+    training_examples = [
+        (['Sunny', 'Warm', 'Normal', 'Strong', 'Warm', 'Same'], 'Yes'),
+        (['Sunny', 'Warm', 'High', 'Strong', 'Warm', 'Same'], 'Yes'),
+        (['Rainy', 'Cold', 'High', 'Strong', 'Warm', 'Change'], 'No'),
+        (['Sunny', 'Warm', 'High', 'Strong', 'Cool', 'Change'], 'Yes')
+    ]
+
+    # Run the candidate elimination algorithm
+    general_boundary, specific_boundary = candidate_elimination(training_examples)
+ID3_DESICIONTREE
+------------------------------------
+import pandas as pd
+import numpy as np
+from graphviz import Digraph
+
+
+def visualize_tree(tree, features, parent_name='', graph=None, is_root=True):
+    if graph is None:
+        graph = Digraph()
+        graph.node(name='root', label=None, shape='ellipse')
+        parent_name = 'root'
+
+    if isinstance(tree, dict):
+        for k, v in tree.items():
+            if isinstance(v, dict):
+                node_name = f'{k}'
+                if is_root:
+                    is_root = False
+                else:
+                    if node_name not in features:
+                        graph.node(name=node_name, label=str(k), shape='box')
+                    else:
+                        graph.node(name=node_name, label=str(k), shape='ellipse')
+                graph.edge(parent_name, node_name)
+                visualize_tree(v, features, node_name, graph, is_root)
+            else:
+                if v == 'Yes' or v == 'No':
+                    node_name = f'{k}'
+                    if node_name not in features:
+                        graph.node(name=node_name, label=str(k), shape='box')
+                    else:
+                        graph.node(name=node_name, label=str(k), shape='ellipse')
+                    graph.edge(parent_name, node_name)
+                    node_name = f'{k}_{v}'
+                    graph.node(name=node_name, label=str(v), shape='diamond')
+                    graph.edge(str(k), node_name)
+    else:
+        if tree == 'Yes' or tree == 'No':
+            node_name = f'{parent_name}_{tree}'
+            graph.node(name=node_name, label=str(tree), shape='diamond')
+            graph.edge(parent_name, node_name)
+
+    return graph
+
+def entropy(target_col):
+    """Calculate the entropy of a dataset."""
+    elements, counts = np.unique(target_col, return_counts=True)
+    entropy_value = np.sum([(-counts[i]/np.sum(counts)) * np.log2(counts[i]/np.sum(counts)) for i in range(len(elements))])
+    return entropy_value
+
+def info_gain(data, split_attribute_name, target_name="class"):
+    """Calculate the entropy of the total dataset"""
+    total_entropy = entropy(data[target_name])
+    vals, counts = np.unique(data[split_attribute_name], return_counts=True)
+    '''Calculate the weighted entropy'''
+    weighted_entropy = np.sum([(counts[i]/np.sum(counts)) * entropy(data.where(data[split_attribute_name] == vals[i]).dropna()[target_name]) for i in range(len(vals))])
+    '''Calculate the information gain'''
+    information_gain = total_entropy - weighted_entropy
+    return information_gain
+
+def id3(data, original_data, features, target_attribute_name="class", parent_node_class=None):
+    """Define the stopping criteria --> If one of this is satisfied, we want to return a leaf node"""
+    if len(np.unique(data[target_attribute_name])) <= 1:
+        return np.unique(data[target_attribute_name])[0]
+    elif len(data) == 0:
+        return np.unique(original_data[target_attribute_name])[np.argmax(np.unique(original_data[target_attribute_name], return_counts=True)[1])]
+    elif len(features) == 0:
+        return parent_node_class
+    else:
+        '''Define the parent node '''
+        parent_node_class = np.unique(data[target_attribute_name])[np.argmax(np.unique(data[target_attribute_name], return_counts=True)[1])]
+        '''Select the feature which best splits the dataset'''
+        item_values = [info_gain(data, feature, target_attribute_name) for feature in features]
+        best_feature_index = np.argmax(item_values)
+        best_feature = features[best_feature_index]
+        '''Create the tree structure. The root gets the name of the feature (best_feature) with the maximum information gain in the first run'''
+        tree = {best_feature: {}}
+        features = [i for i in features if i != best_feature]
+        '''Grow a branch under the root node for each possible value of the root node feature'''
+        for value in np.unique(data[best_feature]):
+            sub_data = data.where(data[best_feature] == value).dropna()
+            '''Call the ID3 algorithm for each of those sub_datasets with the new parameters --> Here the recursion comes in! '''
+            subtree = id3(sub_data, original_data, features, target_attribute_name, parent_node_class)
+            tree[best_feature][value] = subtree
+        return tree
+
+# Training Examples:
+training_data = pd.DataFrame({
+    'Outlook': ['Sunny', 'Sunny', 'Overcast', 'Rain', 'Rain', 'Rain', 'Overcast', 'Sunny', 'Sunny', 'Rain', 'Sunny', 'Overcast', 'Overcast', 'Rain'],
+    'Temperature': ['Hot', 'Hot', 'Hot', 'Mild', 'Cool', 'Cool', 'Cool', 'Mild', 'Cool', 'Mild', 'Mild', 'Mild', 'Hot', 'Mild'],
+    'Humidity': ['High', 'High', 'High', 'High', 'Normal', 'Normal', 'Normal', 'High', 'Normal', 'Normal', 'Normal', 'High', 'Normal', 'High'],
+    'Wind': ['Weak', 'Strong', 'Weak', 'Weak', 'Weak', 'Strong', 'Strong', 'Weak', 'Weak', 'Weak', 'Strong', 'Strong', 'Weak', 'Strong'],
+    'PlayTennis': ['No', 'No', 'Yes', 'Yes', 'Yes', 'No', 'Yes', 'No', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'No']
+})
+feature_columns = training_data.columns[:-1].to_list()
+target_column = 'PlayTennis'
+decision_tree = id3(training_data, training_data, feature_columns, target_column)
+print("Decision Tree:",decision_tree)
+decision_tree_graph = visualize_tree(decision_tree, feature_columns)
+decision_tree_graph.render('decision_tree', format='png', cleanup=True)
+
+    # Print the final version space
+    print("Final Version Space:")
+    print(f"S = {specific_boundary}")
+    print(f"G = {general_boundary}")
+SVM
+------------------------------------------------
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load dataset
+data = pd.read_csv("data/spam.csv", encoding='latin-1')
+data = data[['v1', 'v2']]  # Select relevant columns
+data.columns = ['label', 'text']  # Rename columns
+
+# Preprocess data
+data['label'] = data['label'].map({'ham': 0, 'spam': 1})  # Convert labels to binary
+X = data['text']
+y = data['label']
+
+# Convert text data to TF-IDF features
+vectorizer = TfidfVectorizer(stop_words='english')
+X_tfidf = vectorizer.fit_transform(X)
+
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
+
+# Train SVM model
+svm_model = SVC(kernel='linear')
+svm_model.fit(X_train, y_train)
+
+# Predict on test data
+y_pred = svm_model.predict(X_test)
+
+# Evaluate model
+accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
+
+print(f'Confusion Matrix:\n{conf_matrix}\n')
+print(f'Accuracy: {accuracy}')
+print(f'Precision: {precision}')
+print(f'Recall: {recall}')
+print(f'F1 Score: {f1}')
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=['Ham', 'Spam'], yticklabels=['Ham', 'Spam'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Plot evaluation metrics
+metrics = {'Accuracy': accuracy, 'Precision': precision, 'Recall': recall, 'F1 Score': f1}
+plt.figure(figsize=(8, 6))
+plt.bar(metrics.keys(), metrics.values(), color=['blue', 'green', 'orange', 'purple'])
+plt.xlabel('Metrics')
+plt.ylabel('Score')
+plt.title('Evaluation Metrics')
+plt.ylim(0, 1)
+plt.show()
+KNN
+------------------------------------------------
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load dataset
+data = pd.read_csv("data/spam.csv", encoding='latin-1')
+data = data[['v1', 'v2']]  # Select relevant columns
+data.columns = ['label', 'text']  # Rename columns
+
+# Preprocess data
+data['label'] = data['label'].map({'ham': 0, 'spam': 1})  # Convert labels to binary
+X = data['text']
+y = data['label']
+
+# Convert text data to TF-IDF features
+vectorizer = TfidfVectorizer(stop_words='english')
+X_tfidf = vectorizer.fit_transform(X)
+
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
+
+# Train k-NN model
+k = 5  # Number of neighbors
+knn_model = KNeighborsClassifier(n_neighbors=k)
+knn_model.fit(X_train, y_train)
+
+# Predict on test data
+y_pred = knn_model.predict(X_test)
+
+# Evaluate model
+accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
+
+print(f'Confusion Matrix:\n{conf_matrix}\n')
+print(f'Accuracy: {accuracy}')
+print(f'Precision: {precision}')
+print(f'Recall: {recall}')
+print(f'F1 Score: {f1}')
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=['Ham', 'Spam'], yticklabels=['Ham', 'Spam'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Plot evaluation metrics
+metrics = {'Accuracy': accuracy, 'Precision': precision, 'Recall': recall, 'F1 Score': f1}
+plt.figure(figsize=(8, 6))
+plt.bar(metrics.keys(), metrics.values(), color=['blue', 'green', 'orange', 'purple'])
+plt.xlabel('Metrics')
+plt.ylabel('Score')
+plt.title('Evaluation Metrics')
+plt.ylim(0, 1)
+plt.show()
+NB
+-----------------------------------------------------
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load dataset
+data = pd.read_csv("data/spam.csv", encoding='latin-1')
+data = data[['v1', 'v2']]  # Select relevant columns
+data.columns = ['label', 'text']  # Rename columns
+
+# Preprocess data
+data['label'] = data['label'].map({'ham': 0, 'spam': 1})  # Convert labels to binary
+X = data['text']
+y = data['label']
+
+# Convert text data to TF-IDF features
+vectorizer = TfidfVectorizer(stop_words='english')
+X_tfidf = vectorizer.fit_transform(X)
+
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
+
+# Train Naive Bayes model
+nb_model = MultinomialNB()
+nb_model.fit(X_train, y_train)
+
+# Predict on test data
+y_pred = nb_model.predict(X_test)
+
+# Evaluate model
+accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
+
+print(f'Confusion Matrix:\n{conf_matrix}\n')
+print(f'Accuracy: {accuracy}')
+print(f'Precision: {precision}')
+print(f'Recall: {recall}')
+print(f'F1 Score: {f1}')
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=['Ham', 'Spam'], yticklabels=['Ham', 'Spam'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Plot evaluation metrics
+metrics = {'Accuracy': accuracy, 'Precision': precision, 'Recall': recall, 'F1 Score': f1}
+plt.figure(figsize=(8, 6))
+plt.bar(metrics.keys(), metrics.values(), color=['blue', 'green', 'orange', 'purple'])
+plt.xlabel('Metrics')
+plt.ylabel('Score')
+plt.title('Evaluation Metrics')
+plt.ylim(0, 1)
+
+plt.show()
+
+LINEAR_REGRESSION
+--------------------------------------------------
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.metrics import mean_squared_error
+
+dataset = pd.read_csv('data/Salary_Data.csv')
+X = dataset.iloc[:, :-1].values
+y = dataset.iloc[:, -1].values
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 0)
+
+from sklearn import linear_model
+regressor = linear_model.LinearRegression()
+regressor.fit(X_train, y_train)
+
+print("Regression Coefficients:",regressor.coef_)
+print("Intercept:",regressor.intercept_)
+
+y_pred = regressor.predict(X_test)
+
+#Visualising the Training set results
+plt.scatter(X_train, y_train, color = 'red')
+plt.plot(X_train, regressor.predict(X_train), color = 'blue')
+plt.title('Salary vs Experience (Training set)')
+plt.xlabel('Years of Experience')
+plt.ylabel('Salary')
+plt.show()
+
+#Visualising the Test set results
+plt.scatter(X_test, y_test, color = 'red')
+plt.plot(X_test, y_pred, color = 'blue')
+plt.title('Salary vs Experience (Test set)')
+plt.xlabel('Years of Experience')
+plt.ylabel('Salary')
+plt.show()
+
+#Evaluate on Train Data
+mse = mean_squared_error(y_train, regressor.predict(X_train))
+print(f'Mean Squared Error: {mse}')
+
+#Evaluate on Test Data
+mse = mean_squared_error(y_test, y_pred)
+print(f'Mean Squared Error: {mse}')
+
+# Predict the value at a given point (e.g., 5 years of experience)
+years_of_experience = [[5]]
+predicted_salary = regressor.predict(years_of_experience)
+print(f'Predicted Salary for {years_of_experience[0][0]} years of experience: {predicted_salary[0]}')
+RBF
+------------------------------------------
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial.distance import cdist
+from sklearn.metrics import mean_squared_error
+
+# Define RBF Kernel
+def rbf_kernel(X, centers, sigma):
+    """
+    Compute the RBF kernel matrix.
+    X: Input data points (n_samples, n_features)
+    centers: RBF centers (n_centers, n_features)
+    sigma: Spread parameter for the RBFs
+    Returns:
+        Kernel matrix (n_samples, n_centers)
+    """
+    return np.exp(-cdist(X, centers)**2 / (2 * sigma**2))
+
+# Implement RBF Regression
+class RBFRegression:
+    def __init__(self, num_centers, sigma):
+        self.num_centers = num_centers
+        self.sigma = sigma
+        self.centers = None
+        self.weights = None
+
+    def fit(self, X, y):
+        # Step 3.1: Select RBF centers randomly
+        random_indices = np.random.choice(X.shape[0], self.num_centers, replace=False)
+        self.centers = X[random_indices]
+
+        # Step 3.2: Compute RBF kernel matrix
+        phi = rbf_kernel(X, self.centers, self.sigma)
+
+        # Step 3.3: Solve for weights using the pseudo inverse
+        self.weights = np.linalg.pinv(phi).dot(y)
+
+    def predict(self, X):
+        # Step 3.4: Compute RBF kernel matrix for new inputs
+        phi = rbf_kernel(X, self.centers, self.sigma)
+        return phi.dot(self.weights)
+
+# Step 1: Generate Sample Data
+np.random.seed(42)
+X = np.linspace(-5, 5, 50).reshape(-1, 1)  # Input data points
+y = np.sin(X).ravel() + np.random.normal(scale=0.2, size=X.shape[0])  # Noisy target values
+
+# Visualize the data
+plt.scatter(X, y, color='blue', label='Data Points')
+plt.title("Noisy Data for RBF Regression")
+plt.xlabel("X")
+plt.ylabel("y")
+plt.legend()
+plt.show()
+
+# Step 2: Train and Test the Model
+num_centers = 10  # Number of RBF centers
+sigma = 1.0       # Spread of RBFs
+model = RBFRegression(num_centers, sigma)
+
+# Fit the model to the training data
+model.fit(X, y)
+
+# Step 3: Make Predictions
+# Predict the output for the training data
+y_pred = model.predict(X)
+
+# Visualize the Results
+plt.scatter(X, y, color='blue', label='Data Points')
+plt.plot(X, y_pred, color='red', label='RBF Regression Fit')
+plt.title("RBF Regression: Fitted Curve")
+plt.xlabel("X")
+plt.ylabel("y")
+plt.legend()
+plt.show()
+
+# Step 4: Evaluate the Model
+mse = mean_squared_error(y, y_pred)
+print(f"Mean Squared Error (MSE): {mse:.4f}")
+
+GENETIC
+------------------------------------------------------------
+import random
+import matplotlib.pyplot as plt
+
+# Set the random seed for reproducibility
+random.seed(42)
+
+# Step 1: Initialize population
+def initialize_population(size, num_bits):
+    return [''.join(random.choice('01') for _ in range(num_bits)) for _ in range(size)]
+
+# Step 2: Calculate fitness
+def calculate_fitness(population):
+    fitness = [int(individual, 2) ** 2 for individual in population]
+    return fitness
+
+# Step 3: Roulette Wheel Selection
+def roulette_wheel_selection(population, fitness):
+    total_fitness = sum(fitness)
+    probabilities = [f / total_fitness for f in fitness]
+    selected = random.choices(population, weights=probabilities, k=2)
+    return selected
+
+# Step 4: Single-Point Crossover
+def crossover(parent1, parent2):
+    point = random.randint(1, len(parent1) - 1)
+    child1 = parent1[:point] + parent2[point:]
+    child2 = parent2[:point] + parent1[point:]
+    return child1, child2
+
+# Step 5: Mutation
+def mutate(individual, mutation_rate):
+    mutated = ''.join(
+        bit if random.random() > mutation_rate else str(1 - int(bit))
+        for bit in individual
+    )
+    return mutated
+
+# Step 6: Genetic Algorithm
+def genetic_algorithm(pop_size, num_bits, mutation_rate, num_generations):
+    population = initialize_population(pop_size, num_bits)
+    best_fitness_values = []
+
+    for generation in range(num_generations):
+        fitness = calculate_fitness(population)
+        next_population = []
+        for _ in range(pop_size // 2):
+            # Selection
+            parent1, parent2 = roulette_wheel_selection(population, fitness)
+            # Crossover
+            child1, child2 = crossover(parent1, parent2)
+            # Mutation
+            child1 = mutate(child1, mutation_rate)
+            child2 = mutate(child2, mutation_rate)
+            next_population.extend([child1, child2])
+
+        # Update population
+        population = next_population
+        best_individual = max(population, key=lambda ind: int(ind, 2) ** 2)
+        best_fitness = int(best_individual, 2) ** 2
+        best_fitness_values.append(best_fitness)
+        print(f"Generation {generation + 1}: Best = {best_individual}, Fitness = {best_fitness}")
+
+    # Plotting the best fitness values over generations
+    plt.plot(range(1, num_generations + 1), best_fitness_values, marker='o')
+    plt.title('Best Fitness Over Generations')
+    plt.xlabel('Generation')
+    plt.ylabel('Best Fitness')
+    plt.grid(True)
+    plt.xticks(range(1, num_generations + 1))  # Set x-axis ticks to integer values
+    plt.show()
+
+    return population
+
+# Run the Genetic Algorithm
+population_size = 4
+bit_str_len = 5
+rate_of_mutation = 0.1
+max_generations = 3
+
+final_population = genetic_algorithm(population_size, bit_str_len, rate_of_mutation, max_generations)
+----------------------------------------------------
